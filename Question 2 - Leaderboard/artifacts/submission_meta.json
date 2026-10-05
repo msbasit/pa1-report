@@ -1,0 +1,72 @@
+{
+  "trainable_parameters_P": 8403,
+  "training_epochs_E": 24,
+  "ensemble_members": 3,
+  "seeds": [
+    0,
+    1,
+    2
+  ],
+  "config": {
+    "pred_len": 168,
+    "n_total": 43824,
+    "first_test_idx": 43657,
+    "seq_len": 168,
+    "label_len": 168,
+    "target_transform": "sqrt",
+    "smearing": true,
+    "use_external": true,
+    "use_external_deltas": true,
+    "use_external_rolling": true,
+    "rolling_windows": [
+      6,
+      24
+    ],
+    "use_regime_interactions": true,
+    "use_calendar": true,
+    "d_model": 8,
+    "n_heads": 4,
+    "e_layers": 2,
+    "d_layers": 1,
+    "d_ff": 16,
+    "moving_avg": 25,
+    "autocorr_factor": 1,
+    "dropout": 0.0,
+    "epochs": 8,
+    "batch_size": 64,
+    "lr": 0.001,
+    "weight_decay": 0.0001,
+    "grad_clip": 1.0,
+    "train_stride": 1,
+    "warmup_frac": 0.05,
+    "val_span": 4368,
+    "val_stride": 24,
+    "calib_frac": 0.25,
+    "gap": 168,
+    "seeds": [
+      0,
+      1,
+      2
+    ]
+  },
+  "base_period": 24,
+  "calibration": {
+    "scale": 0.9312910141921175,
+    "offset": 17.50642308847268
+  },
+  "declared_penalties": {
+    "alpha_assumed": 2e-05,
+    "beta_assumed": 0.05
+  },
+  "validation": {
+    "n_blocks": 132,
+    "n_calibration_blocks": 44,
+    "RMSE_mean": 62.87276958712005,
+    "RMSE_std": 0.815004473321374,
+    "ensemble_RMSE": 60.17320981466207,
+    "MAE_mean": 43.16017730520479,
+    "sMAPE_mean": 56.03555539376193,
+    "best_baseline_RMSE": 94.91866274015693,
+    "endogenous_only_RMSE": 99.81036111153712
+  }
+}
