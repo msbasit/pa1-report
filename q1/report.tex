@@ -1,0 +1,491 @@
+\documentclass[11pt,a4paper]{article}
+
+\usepackage[margin=0.78in]{geometry}
+\usepackage[T1]{fontenc}
+\usepackage[utf8]{inputenc}
+\usepackage{lmodern}
+\usepackage{microtype}
+\usepackage{graphicx}
+\usepackage{booktabs}
+\usepackage{tabularx}
+\usepackage{longtable}
+\usepackage{array}
+\usepackage{amsmath}
+\usepackage{siunitx}
+\usepackage{xcolor}
+\usepackage{hyperref}
+\usepackage{caption}
+\usepackage{float}
+\usepackage{enumitem}
+
+\hypersetup{
+  colorlinks=true,
+  linkcolor=blue!50!black,
+  urlcolor=blue!50!black,
+  citecolor=blue!50!black,
+  pdftitle={Task 1: Forecasting Across Heterogeneous Sensors},
+  pdfsubject={AI651 Assignment 1}
+}
+\setlength{\parskip}{0.45em}
+\setlength{\parindent}{0pt}
+\setlength{\emergencystretch}{2em}
+\captionsetup{font=small,labelfont=bf}
+\newcommand{\mse}{\ensuremath{\mathrm{MSE}}}
+\newcommand{\rmse}{\ensuremath{\mathrm{RMSE}}}
+\newcommand{\units}{\ensuremath{\mathrm{m/s^2}}}
+\newcommand{\fig}[3]{
+  \begin{figure}[H]
+    \centering
+    \includegraphics[width=\linewidth,height=0.40\textheight,keepaspectratio]{#1}
+    \caption{#2}
+    \label{#3}
+  \end{figure}
+}
+
+\title{\textbf{Task 1: Forecasting Across Heterogeneous Sensors}\\
+  \large AI651 -- Deep Learning for Space, Time and Graphs\\
+  \normalsize Assignment 1}
+\author{Student: \rule{2.7in}{0.4pt} \qquad Student ID: \rule{1.3in}{0.4pt}}
+\date{Fall 2026}
+
+\begin{document}
+\maketitle
+
+\begin{center}
+\textbf{Repository URL:} \rule{4.2in}{0.4pt}
+\end{center}
+
+\begin{abstract}
+This report evaluates context-dependent forecasting for a synthetic four-station production line.
+The model receives a 96-sample local history and predicts 48 future samples. Results compare
+shared, sensor-specific, and period-routed ridge regression with Raw Attention, moving-average
+decomposition, and a delay mixer. On the full-preset, single-seed run, period-routed ridge has the
+lowest validation error for both established and held-out populations, while the combined
+Autoformer-inspired model is the strongest neural model in aggregate. The report distinguishes
+validation-based choices from final test evaluation and documents the limitations of this one
+synthetic run.
+\end{abstract}
+
+\clearpage
+\tableofcontents
+\newpage
+
+\section{Task, data, and evaluation protocol}
+
+The simulated production line has four vibration stations sampled at 20\,Hz. Products A, B, and C
+have respective nominal period ranges of 14--18, 21--27, and 28--36 samples. The signal combines a
+slow baseline/drift, a repeating vibration, and noise. Stations 1--3 are established; station 4 is
+held out from model fitting. A forecaster sees only one station's 96-sample context and predicts
+the next 48 samples. Windows do not cross operating-regime boundaries.
+
+Training, validation, and final test targets lie in the disjoint intervals
+$[0,9600)$, $[9600,12480)$, and $[12480,15360)$, respectively. Contexts are anchored at their
+last observed value and scaled using established-station training data only; predictions are
+restored to physical units for evaluation. The saved notebook setup records \texttt{PA1\_PRESET=full},
+data seed 0, model seed 0, and CPU device. Neural runs report 6,000 optimization steps.
+
+\textbf{Metrics.} RMSE is reported in \units{} and MSE in $(\units)^2$. Lower is better. The
+validation set selects models and deployment choices; the final test set is shown only after those
+choices are made.
+
+\section{Part 1: context-dependent forecasting}
+
+\subsection{Response 1A: hypothesis, results, and interpretation}
+
+\textbf{Timing note.} The hypothesis below was entered into the notebook after the saved experiment
+outputs existed. It is therefore reported transparently as a retrospective hypothesis, not as a
+preregistered prediction.
+
+The expected ordering was period-routed ridge, then Raw Attention, then approximately tied shared
+and sensor-specific ridge on established stations. The same ordering was expected on station 4,
+without sensor-specific ridge. The rationale was that period routing estimates pace from the
+observed context and selects a fitted map, whereas fixed ridge maps compromise across changing
+paces; Attention must learn context-dependent mixing.
+
+\subsubsection{Output 1.1: validation comparison}
+
+\begin{table}[H]
+\centering
+\caption{Output 1.1: full-preset validation results. Product entries are RMSE.}
+\label{tab:part1}
+\small
+\begin{tabularx}{\linewidth}{>{\raggedright\arraybackslash}X*{6}{>{\centering\arraybackslash}X}}
+\toprule
+Model & Est. RMSE & Est. MSE & Held-out RMSE & Held-out MSE & Parameters & Fit (s)\\
+\midrule
+Shared ridge & 0.767 & 0.588 & 0.876 & 0.767 & 4,608 & 0.002\\
+Sensor-specific ridge & 0.768 & 0.590 & unavailable & unavailable & 13,824 & 0.003\\
+Period-routed ridge & \textbf{0.166} & \textbf{0.028} & \textbf{0.173} & \textbf{0.030} & 59,904 & 0.006\\
+Raw Attention & 0.431 & 0.186 & 0.612 & 0.374 & 368,368 & 760.032\\
+\bottomrule
+\end{tabularx}
+\end{table}
+
+\begin{table}[H]
+\centering
+\caption{Output 1.1 product-wise validation RMSE by population.}
+\label{tab:part1-products}
+\small
+\begin{tabular}{llrrrr}
+\toprule
+Population & Model & Product A & Product B & Product C & Units\\
+\midrule
+Established & Shared ridge & 0.805 & 0.854 & 0.621 & \units\\
+Established & Sensor-specific ridge & 0.804 & 0.852 & 0.630 & \units\\
+Established & Period-routed ridge & \textbf{0.181} & \textbf{0.164} & \textbf{0.152} & \units\\
+Established & Raw Attention & 0.388 & 0.482 & 0.418 & \units\\
+Held-out & Shared ridge & 0.909 & 0.982 & 0.713 & \units\\
+Held-out & Period-routed ridge & \textbf{0.184} & \textbf{0.182} & \textbf{0.150} & \units\\
+Held-out & Raw Attention & 0.647 & 0.580 & 0.607 & \units\\
+\bottomrule
+\end{tabular}
+\end{table}
+
+On established stations, the measured ordering is period-routed ridge $<$ Raw Attention $<$
+shared ridge $\approx$ sensor-specific ridge. On station 4 it is period-routed ridge $<$
+Raw Attention $<$ shared ridge; sensor-specific ridge is unavailable because no station-4
+matrix is fitted. Relative to shared ridge, period routing lowers aggregate RMSE by about 78\%
+on established stations and 80\% on station 4. Raw Attention lowers it by about 44\% and 30\%,
+respectively.
+
+Across products, routed ridge and Raw Attention retain their relative ordering. Shared and
+sensor-specific ridge are near-tied and swap order: sensor-specific is marginally better for A
+and B, while shared is better for C. Station-specific fitting does not solve pace changes within
+a station. Period routing provides a useful explicit inductive bias by estimating period from
+the current context and choosing a pace-band map. Attention also depends on context, but in this
+run its flexibility does not beat period routing.
+
+\subsection{Response 1B: why forecasting must depend on context}
+
+\subsubsection{Outputs 1.2 and 1.3: context and Attention}
+
+\fig{extracted_images/01-cell-12-output-02.png}
+{Output 1.2: forecasts for Station 1 under Product A and Product C, with different actual periods
+(16.135 and 30.093 samples). The fixed ridge curves compromise in phase/shape; the context-routed
+forecast follows the continuations more closely.}
+{fig:regime-forecasts}
+
+In the two plotted validation windows, shared-ridge window RMSE is 0.779 for Product A and 0.448
+for Product C; period-routed ridge gives 0.232 and 0.150, and Raw Attention gives 0.290 and
+0.378. These are individual examples, not aggregate performance estimates. The same station faces
+different periods, so station identity alone cannot specify the phase advance needed for the next
+48 samples. A fixed linear map must compromise across these incompatible continuations.
+
+\fig{extracted_images/02-cell-13-output-02.png}
+{Output 1.3: learned Attention weights respond differently to Product A and Product C contexts.
+This demonstrates context dependence, not recovery of the physical period.}
+{fig:attention}
+
+The learned query, key, and value projections are fixed after training, but their outputs depend
+on the input context. Thus the query-key scores and softmax weights, and therefore the value-mixing
+operation, change from one context to another. The saved mean absolute weight difference is
+0.0113 and the maximum is 0.4250. This does not establish that Attention has recovered the true
+period; it shows only that its mixing weights depend on the input.
+
+\section{Part 2: separating slow structure from repetition}
+
+\subsection{Response 2: decomposition, width selection, and evidence}
+
+For odd width $m=2q+1$, the trend is the centered moving average
+\[
+T_t=\frac{1}{m}\sum_{u=-q}^{q}x_{t+u},\qquad S_t=x_t-T_t.
+\]
+At boundaries the nearest endpoint is replicated. The streams have the same length and satisfy
+$S+T=x$. The trend is sent to a linear forecasting head, while the remainder is embedded and
+processed by the encoder; decomposition also follows each residual sublayer.
+
+\fig{extracted_images/03-cell-18-output-02.png}
+{Output 2.1: candidate moving-average widths on a Station 2/Product C context. Wider width 41
+leaves a stronger oscillatory residual and yields a clear period peak after decomposition.}
+{fig:decomposition}
+
+\begin{table}[H]
+\centering
+\caption{Output 2.1: candidate trend widths and training-only oracle diagnostic.}
+\label{tab:widths}
+\small
+\begin{tabular}{rrrrr}
+\toprule
+Width & Selected & Residual std (\units) & Trend range (\units) &
+Recovery within 1 sample\\
+\midrule
+17 & No & 0.578 & 8.768 & 98.00\%\\
+25 & No & 1.012 & 8.037 & 98.92\%\\
+33 & No & 1.372 & 8.076 & 99.33\%\\
+41 & \textbf{Yes} & 1.572 & 8.280 & \textbf{99.85\%}\\
+Raw & -- & -- & -- & 68.67\%\\
+\bottomrule
+\end{tabular}
+\end{table}
+
+Width 41 (2.05 seconds at 20\,Hz) was selected by the highest training-only oracle recovery
+within one sample. It is not the minimum-median-error width: width 25's median absolute period
+error is 0.122 samples versus 0.216 for width 41. The oracle diagnostic uses the known synthetic
+period only for training-window preprocessing selection/diagnosis; it is not fed to the
+forecaster and would not be available as such in ordinary deployment.
+
+\fig{extracted_images/04-cell-18-output-05.png}
+{Output 2.2: oracle period recovery within one sample for the raw context and four decomposition
+widths. The selected width maximizes this criterion.}
+{fig:oracle}
+
+\subsection{Output 2.3: decomposition ablation}
+
+\begin{table}[H]
+\centering
+\caption{Output 2.3: validation errors by population and product.}
+\label{tab:decomp-ablation}
+\scriptsize
+\begin{tabular}{llrrr}
+\toprule
+Model & Population / product & MSE $(\units)^2$ & RMSE (\units) & MAE (\units)\\
+\midrule
+Raw Attention & Established / A & 0.150 & 0.388 & 0.293\\
+Raw Attention & Established / B & 0.233 & 0.482 & 0.358\\
+Raw Attention & Established / C & 0.175 & 0.418 & 0.306\\
+Raw Attention & Held-out / A & 0.418 & 0.647 & 0.502\\
+Raw Attention & Held-out / B & 0.336 & 0.580 & 0.439\\
+Raw Attention & Held-out / C & 0.369 & 0.607 & 0.456\\
+\midrule
+Attention + decomposition & Established / A & 0.070 & 0.264 & 0.204\\
+Attention + decomposition & Established / B & 0.112 & 0.335 & 0.249\\
+Attention + decomposition & Established / C & 0.080 & 0.283 & 0.212\\
+Attention + decomposition & Held-out / A & 0.129 & 0.359 & 0.275\\
+Attention + decomposition & Held-out / B & 0.238 & 0.488 & 0.357\\
+Attention + decomposition & Held-out / C & 0.189 & 0.434 & 0.330\\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\fig{extracted_images/05-cell-19-output-02.png}
+{Output 2.3: validation ablation showing the effect of decomposition on forecasts and errors.}
+{fig:decomp-ablation}
+
+On aggregate validation, decomposition lowers Attention RMSE from 0.431 to 0.296 on established
+stations and from 0.612 to 0.430 on station 4, reductions of about 31\% and 30\%. It improves
+each product/population row in the ablation. A moving average is sensible for the synthetic
+world because the baseline varies smoothly on a longer time scale than the vibration cycle.
+An abrupt baseline jump would violate this assumption: averaging would smear the transition and
+leave transient structure in the residual, where it may be mistaken for repetition.
+
+\section{Part 3: mixing by temporal delay}
+
+\subsection{Response 3: delay aggregation and recurrence evidence}
+
+For each selected delay $\tau_j$ and weight $\alpha_j$, the aggregation implements
+\[
+z_t=\sum_{j=1}^{K}\alpha_j v_{(t-\tau_j)\bmod L}.
+\]
+The implementation vectorizes selection with circular indices and shares each example's delays
+and weights across heads and features. The immediate worked example returns
+$[35,15,25,25]$ for values $[10,20,30,40]$, delays $[1,3]$, and weights $[0.75,0.25]$.
+This verifies the required direction: $z_0=0.75(40)+0.25(20)=35$.
+
+\begin{table}[H]
+\centering
+\caption{Output 3.1: supplied FFT delay scores equal direct circular correlation.}
+\label{tab:delay-check}
+\begin{tabular}{rrr}
+\toprule
+Delay & FFT score & Direct score\\
+\midrule
+0 & 4 & 4\\
+1 & -4 & -4\\
+2 & 4 & 4\\
+3 & -4 & -4\\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\subsection{Output 3.2: recurrence diagnostic}
+
+\fig{extracted_images/06-cell-31-output-02.png}
+{Output 3.2: raw and decomposed-signal circular recurrence for Station 2/Product A. The
+diagnostic is computed from signal values, not learned query/key scores.}
+{fig:recurrence}
+
+For the plotted run, the actual period is 16.135 samples. Residual recurrence peaks at integer
+delays 16 and 32, near $P$ and $2P$, with correlations 0.896 and 0.897; the next peak is near
+48, approximately $3P$. The raw signal's slow drift creates broad, less period-specific
+correlation. Removing the smooth component makes the repeating structure more visible and
+supports a mixer organized by displacement. This is a signal-level diagnostic, not evidence
+that the trained model's learned query/key scores peak at those delays.
+
+Delay mixing would be a poor assumption for an isolated transient: it has no recurring
+displacement, and circularly shifted copies can wrap or spread the event to unrelated positions.
+
+\section{Part 4: compare designs and deploy}
+
+\subsection{Response 4(a): hypothesis}
+
+\textbf{Timing note.} As with Response 1A, this prediction was entered after saved experiment
+outputs existed and is presented as a retrospective hypothesis, not as a preregistered prediction.
+The hypothesis was that decomposition should help most when the slow component is prominent,
+because it removes the ramp from the encoder and can expose recurring structure. Delay mixing
+alone was expected to benefit less directly because it still scores projected features from a
+raw representation.
+
+\subsection{Response 4(b): comparison and horizon behavior}
+
+\subsubsection{Output 4.1: 2-by-2 comparison}
+
+\begin{table}[H]
+\centering
+\caption{Output 4.1: all four neural configurations on validation.}
+\label{tab:four-models}
+\small
+\begin{tabularx}{\linewidth}{>{\raggedright\arraybackslash}X*{6}{>{\centering\arraybackslash}X}}
+\toprule
+Model & Est. RMSE & Est. MSE & Held-out RMSE & Held-out MSE & Parameters & Fit (s)\\
+\midrule
+Raw Attention & 0.431 & 0.186 & 0.612 & 0.374 & 368,368 & 760.032\\
+Attention + decomposition & 0.296 & 0.087 & 0.430 & 0.185 & 373,024 & 897.249\\
+Raw delay mixer & 0.221 & 0.049 & 0.340 & 0.116 & 368,370 & 899.230\\
+Autoformer-inspired & \textbf{0.199} & \textbf{0.040} & \textbf{0.239} & \textbf{0.057} & 373,026 & 1008.758\\
+\bottomrule
+\end{tabularx}
+\end{table}
+
+\begin{table}[H]
+\centering
+\caption{Output 4.1: product-wise validation RMSE for the four neural configurations.}
+\label{tab:four-products}
+\small
+\begin{tabular}{llrrr}
+\toprule
+Population & Model & A & B & C\\
+\midrule
+Established & Raw Attention & 0.388 & 0.482 & 0.418\\
+Established & Attention + decomposition & 0.264 & 0.335 & 0.283\\
+Established & Raw delay mixer & 0.211 & 0.211 & 0.239\\
+Established & Autoformer-inspired & 0.226 & 0.188 & 0.182\\
+\midrule
+Held-out & Raw Attention & 0.647 & 0.580 & 0.607\\
+Held-out & Attention + decomposition & 0.359 & 0.488 & 0.434\\
+Held-out & Raw delay mixer & 0.415 & 0.281 & 0.309\\
+Held-out & Autoformer-inspired & 0.270 & 0.221 & 0.224\\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\fig{extracted_images/07-cell-35-output-02.png}
+{Output 4.1: contrasting validation windows with the largest combined-model gain and loss. The
+combined model is not best on every individual window.}
+{fig:contrasting}
+
+Both switches improve aggregate validation error. For established stations, decomposition lowers
+MSE by 0.099 with Attention and 0.009 with delay mixing; replacing Attention with delay mixing
+lowers it by 0.137 on raw inputs and 0.047 on decomposed inputs. For station 4, the corresponding
+reductions are 0.189/0.059 and 0.258/0.128. Delay mixing alone has the larger aggregate gain, but
+these scores do not isolate the drift-prominent contexts targeted by the hypothesis. Combined
+gains (0.146 established, 0.317 held-out) are smaller than the sums of individual gains
+(0.236/0.447). This is consistent with overlapping benefits in this run, not proof of a causal
+mechanism.
+
+Autoformer-inspired is the strongest neural model in aggregate, but not on every product/window.
+Established Product A favors raw delay mixing (RMSE 0.211 vs. 0.226). In the largest-loss
+contrast, raw delay mixing has RMSE 0.139 versus 0.358 for Autoformer-inspired.
+
+\subsubsection{Output 4.2: horizon behavior}
+
+\fig{extracted_images/08-cell-36-output-02.png}
+{Output 4.2: RMSE across the 48-step forecast horizon for established and held-out populations.}
+{fig:horizon}
+
+\begin{table}[H]
+\centering
+\caption{Output 4.2: RMSE at forecast steps 1 and 48 (validation, \units).}
+\label{tab:horizon-endpoints}
+\small
+\begin{tabular}{llrr}
+\toprule
+Population & Model & Step 1 & Step 48\\
+\midrule
+Established & Period-routed ridge & 0.112 & 0.228\\
+Established & Raw Attention & 0.144 & 0.528\\
+Established & Raw delay mixer & 0.121 & 0.346\\
+Established & Attention + decomposition & 0.149 & 0.399\\
+Established & Autoformer-inspired & 0.135 & 0.237\\
+\midrule
+Held-out & Period-routed ridge & 0.119 & 0.212\\
+Held-out & Raw Attention & 0.176 & 0.761\\
+Held-out & Raw delay mixer & 0.139 & 0.630\\
+Held-out & Attention + decomposition & 0.147 & 0.589\\
+Held-out & Autoformer-inspired & 0.147 & 0.299\\
+\bottomrule
+\end{tabular}
+\end{table}
+
+Errors generally rise with forecast horizon, though not monotonically. The increase is steepest
+for Raw Attention and Raw delay mixer, particularly on the held-out station. Autoformer-inspired
+and period-routed ridge remain comparatively stable toward step 48.
+
+\subsection{Response 4(c): deployment choice and test results}
+
+Model choice was made using validation evidence. Period-routed ridge is selected for both
+populations because it has the lowest validation error, 59,904 parameters, and a recorded fitting
+time of approximately 0.006 seconds, far below the neural fits. Sensor-specific ridge cannot
+serve station 4 because it has no fitted model for that station.
+
+\begin{table}[H]
+\centering
+\caption{Output 4.3: selected model validation and final test results.}
+\label{tab:deployment}
+\begin{tabular}{l l r r r r}
+\toprule
+Population & Model & Val. MSE & Val. RMSE & Test MSE & Test RMSE\\
+\midrule
+Established & Period-routed ridge & 0.028 & 0.166 & 0.026 & 0.161\\
+Held-out & Period-routed ridge & 0.030 & 0.173 & 0.033 & 0.183\\
+\bottomrule
+\end{tabular}
+\end{table}
+
+The close validation/test RMSEs support generalization within this simulated setting. Test scores
+are reported as the final evaluation of a validation-selected model, not used to select it.
+
+\section{Conclusion}
+
+The experiment illustrates the value of inductive bias. Period-routed ridge is substantially
+better than the other listed models on both validation populations despite being much smaller and
+faster to fit. Among neural variants, decomposition and delay mixing each improve aggregate
+validation accuracy relative to Raw Attention, and their combination performs best overall.
+However, the improvements are subadditive in this run and individual product/window exceptions
+remain. These observations support the methods on this synthetic benchmark; they do not establish
+universal superiority or real-world equipment-monitoring performance.
+
+\section*{Reproducibility and AI-use disclosure}
+\addcontentsline{toc}{section}{Reproducibility and AI-use disclosure}
+
+The figures in this report are the eight saved PNG outputs extracted from the executed full-preset
+notebook. Numerical tables reproduce its saved CSV outputs. No new training or notebook execution
+was performed to prepare this report. The recorded run uses data seed 0 and model seed 0; results
+are therefore a single-seed experiment.
+
+Generative AI assistance (Copilot) was used to help inspect Task 1 requirements, compare notebook
+outputs with those requirements, extract notebook figures, and draft/organize explanatory report
+text. Representative prompts requested an implementation/results audit, comparison of hypotheses
+with validation results, and a comprehensive LaTeX report. The AI output included draft summaries,
+interpretations, tables, and report structure. The hypotheses were supplied by the student; the
+report explicitly identifies them as retrospective because they were added after saved outputs
+existed. The student revised the 1A ordering language and supplied/revised the 4A drift-focused
+hypothesis; the AI draft was adjusted to reflect those edits and the saved validation values. The
+AI did not run training or generate the experimental measurements. The student should review this
+report, verify all claims, and disclose any further edits or AI use in accordance with course
+policy.
+
+\section*{References}
+\addcontentsline{toc}{section}{References}
+
+\begin{enumerate}[leftmargin=*]
+  \item Wu, H. et al. (2021). ``Autoformer: Decomposition Transformers with Auto-Correlation
+  for Long-Term Series Forecasting,'' Sections 3.1--3.2.
+  \item Vaswani, A. et al. (2017). ``Attention Is All You Need.''
+  \item Zeng, A. et al. (2023). ``Are Transformers Effective for Time Series Forecasting?''
+  \item Hyndman, R. J. and Athanasopoulos, G. \textit{Forecasting: Principles and Practice},
+  Section 5.10.
+  \item AI651 Assignment 1, ``Forecasting Across Heterogeneous Sensors,'' Fall 2026; supplied
+  assignment notebook and harness.
+\end{enumerate}
+
+\end{document}
